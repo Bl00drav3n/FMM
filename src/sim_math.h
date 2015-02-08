@@ -142,6 +142,13 @@ operator*(v2 a, v2 b)
     return result;
 }
 
+inline v2&
+operator*=(v2 &a, v2 b)
+{
+    a = a * b;
+    return a;
+}
+
 inline v2
 conjugate(v2 z)
 {
@@ -156,5 +163,35 @@ operator/(v2 n, v2 d)
     v2 result;
     float oneOverDSqr = 1 / lengthSq(d);
     result = oneOverDSqr * n * conjugate(d);
+    return result;
+}
+
+inline v2
+pow(v2 z, uint32_t k)
+{
+    v2 result = V2(1, 0);
+    for(uint32_t i = 0; i < k; i++) {
+        result *= z;
+    }
+
+    return z;
+}
+
+/* general math utilities */
+
+/*
+ * TODO: find a better way to calculate those (lookup table?)
+ */
+static inline uint32_t
+binomial(uint32_t n, uint32_t k)
+{
+    uint32_t result = 1;
+    assert(k <= n);
+    if(k < n) {
+        for(uint32_t i = 1; i <= k; i++) {
+            result *= (n + 1 - i) / i;
+        }
+    }
+
     return result;
 }
