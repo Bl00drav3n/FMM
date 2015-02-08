@@ -49,7 +49,11 @@ struct cell
 {
     v2 center;
     v2 half_dim;
-    struct cell *childs[2][2];
+    struct cell *parent;
+    union {
+        struct cell *childs[4];
+        struct cell *childs2d[2][2];
+    };
 
     v2 *a;
     v2 *b;
@@ -150,20 +154,56 @@ integrate(float timeStep)
 }
 
 static void
+initialize_cell(struct cell *this_, struct cell *parent, 
+        v2 center, v2 half_dim)
+{
+    this_->parent = parent;
+    this_->half_dim = half_dim;
+    this_->center = center;
+    this_->a = push_array(v2, data.num_coeffs);
+    this_->b = push_array(v2, data.num_coeffs);
+}
+
+static void
+create_children(struct cell *this_)
+{
+    v2 centers[4];
+    v2 center = this_->center;
+    v2 hhalf_dim = 0.5f * this_->half_dim;
+    centers[0] = center + V2(-hhalf_dim.x, -hhalf_dim.y);
+    centers[1] = center + V2(hhalf_dim.x, -hhalf_dim.y);
+    centers[2] = center + V2(-hhalf_dim.x, hhalf_dim.y);
+    centers[3] = center + V2(hhalf_dim.x, hhalf_dim.y);
+
+    struct cell *childs = push_array(struct cell, 4);
+    for(uint32_t i = 0; i < 4; i++) {
+        struct cell *cur_child = childs + i;
+        initialize_cell(cur_child, this_, centers[i], hhalf_dim);
+        this_->childs[i] = cur_child;
+    }
+}
+
+
+static void
+subdivide(struct cell *this_, uint32_t level)
+{
+    if(level == 1) {
+        return;
+    }
+
+    create_children(this_);
+    for(uint32_t i = 0; i < 4; i++) {
+        subdivide(this_->childs[i], level - 1);
+    }
+}
+
+static void
 initialize_quad_tree(struct cell *root)
 {
     v2 half_dim = 0.5f * data.dim;
-    root->half_dim = half_dim;
-    root->center = half_dim;
-
-    struct cell *childs = push_array(struct cell, 4);
-    root->childs[0][0] = childs;
-    root->childs[0][1] = childs + 1;
-    root->childs[1][0] = childs + 2;
-    root->childs[1][1] = childs + 3;
-
-    root->a = push_array(v2, data.num_coeffs);
-    root->b = push_array(v2, data.num_coeffs);
+    initialize_cell(root, 0, half_dim, half_dim);
+    /* recursion */
+    subdivide(root, data.num_levels);
 }
 
 static void
