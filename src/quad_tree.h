@@ -16,6 +16,7 @@
  * =====================================================================================
  */
 
+/* NOTE: Should we include a boolean is_leaf? (not neccessary) */
 struct cell
 {
     v2 center;

@@ -67,3 +67,29 @@ initialize_quad_tree(struct cell *root,
     subdivide(root, num_levels, num_coeffs);
 }
 
+static struct cell*
+find_residence(struct cell *this_, v2 pos)
+{
+    if(this_->childs[0] == 0) {
+        return this_;
+    }
+
+    struct cell *child;
+    v2 diff = pos - this_->center;
+    if(diff.x < 0) {
+        if(diff.y < 0) {
+            child = this_->childs2d[0][0];
+        } else {
+            child = this_->childs2d[1][0];
+        }
+    } else {
+        if(diff.y < 0) {
+            child = this_->childs2d[0][1];
+        } else {
+            child = this_->childs2d[1][1];
+        }
+    }
+
+    return find_residence(child, pos);
+}
+
