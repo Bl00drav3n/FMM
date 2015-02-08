@@ -1,4 +1,4 @@
 FMM
 ===
 
-2D Fast Multipole Algorithm for Coloumb Charges
+2D fast multipole algorithm for Coulomb charges with periodic boundary conditions.
