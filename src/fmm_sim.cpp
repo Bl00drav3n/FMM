@@ -173,6 +173,86 @@ debug_write_positions_to_file(const char *filename)
     }
 }
 
+/* 
+ * NOTE: We call this on the root node, which will clear all the a of non-leaf
+ * nodes and builds the multipole moments (a) for every remainging cell in 
+ * the tree.
+ */
+static void
+accumulate_cell_multipoles(struct cell *this_)
+{
+    if(this_ == 0)
+        return;
+    else if(this_->childs[0] != 0) {
+        /* NOTE: clear a to (0,0) if this is not a leaf node. */
+        for(uint32_t i = 0; i < data.num_coeffs; i++) {
+            this_->a[i] = V2(0, 0);
+        }
+    }
+
+    for(uint32_t i = 0; i < 4; i++) {
+        accumulate_cell_multipoles(this_->childs[i]);
+    }
+
+    /* do the actual work */
+    if(this_->parent != 0) {
+        this_->parent->a[0] += this_->a[0];
+        v2 z = this_->parent->center - this_->center;
+        for(uint32_t k = 1; k < data.num_coeffs; k++) {
+            this_->parent->a[k] -= (this_->a[0]/k) * pow(z, k);
+            for(uint32_t l = 1; l <= k; l++) {
+                this_->parent->a[k] += binomial(k - 1, l - 1) *
+                    this_->a[l] * pow(z, k - l);
+            }
+        }
+    }
+}
+
+static void
+reset_leave_nodes(struct cell *this_)
+{
+    if(this_ == 0)
+        return;
+    else if(this_->childs[0] == 0) {
+        for(uint32_t i = 0; i < data.num_coeffs; i++) {
+            this_->a[i] = V2(0,0);
+        }
+    }
+
+    for(uint32_t i = 0; i < 4; i++) {
+        reset_leave_nodes(this_->childs[i]);
+    }
+}
+
+/*
+ * NOTE: When this function returns, we have multipole moments for all
+ * cells in the tree.
+ */
+static void
+calculate_multipoles()
+{
+    /* 
+     * TODO: Clear all a to (0,0). We are doing this for all
+     * non-leaf nodes in the upward pass already. We need a good way to do this
+     * efficiently - maybe in the downward pass? For now we just use a little
+     * helper function.
+     */
+
+    reset_leave_nodes(&data.root_cell);
+
+    for(uint32_t i = 0; i < data.num_particles; i++) {
+        v2 pos = data.positions[i];
+        struct cell *residence = find_residence(&data.root_cell, pos);
+        residence->a[0] += V2(1, 0);
+        for(uint32_t k = 1; k < data.num_coeffs; k++) {
+            /* TODO: make this faster (don't use pow, precompute 1/k) */
+            residence->a[k] -= pow(pos - residence->center, k) / (float)k;
+        }
+    }
+
+    accumulate_cell_multipoles(&data.root_cell);
+}
+
 int 
 main(int argc, char *argv[])
 {
@@ -181,13 +261,14 @@ main(int argc, char *argv[])
     uint32_t num_particles_x = 16;
     uint32_t num_particles_y = 16;
     uint32_t num_particles = num_particles_x * num_particles_y;
-    uint32_t num_levels = 4;
+    uint32_t num_levels = logf(num_particles) / logf(4.f);
     uint32_t num_coefficients = 4;
     uint32_t memory_size = 256 * 1024 * 1024;
     initialize_data(memory_size, num_particles_x, num_particles_y,
             num_levels, num_coefficients);
 
     for(uint32_t loop = 0; loop < nIntegrations; loop++) {
+        calculate_multipoles();
         reset_forces();
         calculate_forces();
         integrate(timeStep);
