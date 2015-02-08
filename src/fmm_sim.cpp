@@ -23,24 +23,52 @@
 
 #include "sim_math.h"
 
+struct memory_arena
+{
+    uint8_t *free_memory;
+    uint32_t free_memory_size;
+};
+
+static struct memory_arena memory = {};
+
+static void *
+push_memory(uint32_t size)
+{
+    void *result;
+    assert(memory.free_memory_size >= size);
+    result = memory.free_memory;
+    memory.free_memory += size;
+    memory.free_memory_size -= size;
+    return result;
+}
+
+#define push_struct(type) (type*)push_memory(sizeof(type))
+#define push_array(type, amount) (type*)push_memory(amount * sizeof(type))
+
+struct cell
+{
+    v2 center;
+    v2 half_dim;
+    struct cell *childs[2][2];
+
+    v2 *a;
+    v2 *b;
+};
+
 struct fmm_data
 {
+    uint32_t num_particles;
     v2 *positions;
     v2 *velocities;
     v2 *forces;
-    v2 half_dim;
     v2 dim;
-    uint32_t num_particles;
+
+    uint32_t num_levels;
+    uint32_t num_coeffs;
+    struct cell root_cell;
 };
 
-static struct fmm_data data;
-
-static uint32_t
-calculate_required_memsize(uint32_t num_particles)
-{
-    uint32_t result = 3 * num_particles * sizeof(v2);
-    return result;
-}
+static struct fmm_data data = {};
 
 static void
 reset_forces()
@@ -54,12 +82,13 @@ static inline v2
 canonicalize(v2 v)
 {
     v2 result;
-    result.x = v.x - ((int32_t)(v.x / data.half_dim.x)) * data.dim.x;
-    result.y = v.y - ((int32_t)(v.y / data.half_dim.y)) * data.dim.y;
-    assert(result.x >= -data.half_dim.x &&
-            result.x <= data.half_dim.x);
-    assert(result.y >= -data.half_dim.y &&
-            result.y <= data.half_dim.y);
+    v2 half_dim = data.root_cell.half_dim;
+    result.x = v.x - ((int32_t)(v.x / half_dim.x)) * data.dim.x;
+    result.y = v.y - ((int32_t)(v.y / half_dim.y)) * data.dim.y;
+    assert(result.x >= -half_dim.x &&
+            result.x <= half_dim.x);
+    assert(result.y >= -half_dim.y &&
+            result.y <= half_dim.y);
     return result;
 }
 
@@ -121,8 +150,36 @@ integrate(float timeStep)
 }
 
 static void
-initialize_data(uint32_t num_particles_x, uint32_t num_particles_y)
+initialize_quad_tree(struct cell *root)
 {
+    v2 half_dim = 0.5f * data.dim;
+    root->half_dim = half_dim;
+    root->center = half_dim;
+
+    struct cell *childs = push_array(struct cell, 4);
+    root->childs[0][0] = childs;
+    root->childs[0][1] = childs + 1;
+    root->childs[1][0] = childs + 2;
+    root->childs[1][1] = childs + 3;
+
+    root->a = push_array(v2, data.num_coeffs);
+    root->b = push_array(v2, data.num_coeffs);
+}
+
+static void
+initialize_data(uint32_t memsize, 
+        uint32_t num_particles_x, uint32_t num_particles_y, 
+        uint32_t num_levels, uint32_t num_coeffs)
+{
+    uint32_t num_particles = num_particles_x * num_particles_y;
+    memory.free_memory = (uint8_t*)calloc(memsize, 1);
+    memory.free_memory_size = memsize;
+    
+    data.positions = push_array(v2, num_particles);
+    data.velocities = push_array(v2, num_particles);
+    data.forces = push_array(v2, num_particles);
+    data.num_particles = num_particles;
+    
     /* initialize equidistant grid */
     v2 min_corner = V2(0, 0);
     v2 max_corner = V2(1, 1);
@@ -140,7 +197,10 @@ initialize_data(uint32_t num_particles_x, uint32_t num_particles_y)
     }
 
     data.dim = dim;
-    data.half_dim = 0.5f * dim;
+    data.num_levels = num_levels;
+    data.num_coeffs = num_coeffs;
+
+    initialize_quad_tree(&data.root_cell);
 }
 
 static void
@@ -166,17 +226,11 @@ main(int argc, char *argv[])
     uint32_t num_particles_x = 16;
     uint32_t num_particles_y = 16;
     uint32_t num_particles = num_particles_x * num_particles_y;
+    uint32_t num_levels = 4;
+    uint32_t num_coefficients = 4;
     uint32_t memory_size = 256 * 1024 * 1024;
-    uint32_t required_memsize = calculate_required_memsize(num_particles);
-
-    assert(memory_size >= required_memsize);
-    void *memory = calloc(memory_size, 1);
-    data.positions = (v2*)memory;
-    data.velocities = data.positions + num_particles;
-    data.forces = data.velocities + num_particles;
-    data.num_particles = num_particles;
-    
-    initialize_data(num_particles_x, num_particles_y);
+    initialize_data(memory_size, num_particles_x, num_particles_y,
+            num_levels, num_coefficients);
 
     for(uint32_t loop = 0; loop < nIntegrations; loop++) {
         reset_forces();
